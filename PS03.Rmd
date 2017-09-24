@@ -1,6 +1,6 @@
 ---
 title: "STAT/MATH 495: Problem Set 03"
-author: "WRITE YOUR NAME HERE"
+author: "Leonard Yoon"
 date: "2017-09-26"
 output:
   html_document:
@@ -20,7 +20,6 @@ data1 <- read_csv("data/data1.csv")
 data2 <- read_csv("data/data2.csv")
 ```
 
-
 # Question
 
 For both `data1` and `data2` tibbles (a tibble is a data frame with some
@@ -35,10 +34,76 @@ For both `data1` and `data2` tibbles (a tibble is a data frame with some
 # Data 1
 
 ```{r, echo=TRUE, warning=FALSE, message=FALSE}
+splines_model <- smooth.spline(x=data1$x, y=data1$y, df = 10) # cv = true for sanity check
+splines_model_tidy <- splines_model %>% 
+  broom::augment() 
+plot <- ggplot(splines_model_tidy, aes(x=x)) +
+  geom_point(aes(y=y)) +
+  geom_line(aes(y=.fitted), col="blue")
+plot
+```
+
+1. Take data1 and split it into k folds. Let's say k = 5.
+2. In each fold, randomly create disjoint training set and test (validation) set. Test set is 1/5 of data1 and the rest is training set.
+3. For the training set in each fold, fit a spline model. Then use predict() to take the model and create y-hat values for the test set.
+4. Compute score by comparing the y-hat values for the test set with the actual y values. Let the score = RMSE.
+5. Repeat by choosing another 1/5 of data1 to be the test set and then the rest of it to be the training set. Fit a spline model to the new training set. Use predict() to take the model and create y-hat values for the test set. Compute score by comparing the y-hat values of the test set with the actual y values.
+
+```{r, echo=TRUE, warning=FALSE, message=FALSE}
+set.seed(18)
+
+# Create disjoint training and test data sets of size 2400 and 600, respectively
+data1_sample_train <- data1 %>% 
+  sample_n(2400)
+data1_sample_test <- data1 %>% 
+  anti_join(data1_sample_train, by="ID")
+
+# Fit a spline model to training data set
+splines_model1 <- smooth.spline(x=data1_sample_train$x, y=data1_sample_train$y, df = 10)
+splines_model1_tidy <- splines_model1 %>% 
+  broom::augment() 
+plot <- ggplot(splines_model1_tidy, aes(x=x)) +
+  geom_point(aes(y=y)) +
+  geom_line(aes(y=.fitted), col="blue")
+plot
+
+# Use predict() to create y-hat values for test set
+data1_sample_test$preds <- predict(splines_model1,data1_sample_test$x)$y
+
+# RMSE
+n <- length(data1_sample_test$preds)
+MSE <- (1/n)*sum((data1_sample_test$y-data1_sample_test$preds)^2)
+RMSE <- sqrt(MSE)
+RMSE
 ```
 
 # Data 2
 
 ```{r, echo=TRUE, warning=FALSE, message=FALSE}
+set.seed(18)
+
+# Create disjoint training and test data sets of size 2400 and 600, respectively
+data2_sample_train <- data2 %>% 
+  sample_n(2400)
+data2_sample_test <- data2 %>% 
+  anti_join(data1_sample_train, by="ID")
+
+# Fit a spline model to training data set
+splines_model2 <- smooth.spline(x=data2_sample_train$x, y=data2_sample_train$y, df = 10)
+splines_model2_tidy <- splines_model2 %>% 
+  broom::augment() 
+plot <- ggplot(splines_model2_tidy, aes(x=x)) +
+  geom_point(aes(y=y)) +
+  geom_line(aes(y=.fitted), col="blue")
+plot
+
+# Use predict() to create y-hat values for test set
+data2_sample_test$preds <- predict(splines_model2,data2_sample_test$x)$y
+
+# RMSE
+n <- length(data2_sample_test$preds)
+MSE <- (1/n)*sum((data2_sample_test$y-data2_sample_test$preds)^2)
+RMSE <- sqrt(MSE)
+RMSE
 ```
 
