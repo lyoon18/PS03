@@ -26,84 +26,419 @@ For both `data1` and `data2` tibbles (a tibble is a data frame with some
 [metadata](https://blog.rstudio.com/2016/03/24/tibble-1-0-0#tibbles-vs-data-frames) attached):
 
 * Find the splines model with the best out-of-sample predictive ability.
-* Create a visualizaztion arguing why you chose this particular model.
-* Create a visualizaztion of this model plotted over the given $(x_i, y_i)$ points for $i=1,\ldots,n=3000$.
+* Create a visualization arguing why you chose this particular model.
+* Create a visualization of this model plotted over the given $(x_i, y_i)$ points for $i=1,\ldots,n=3000$.
 * Give your estimate $\widehat{\sigma}$ of $\sigma$ where the noise component $\epsilon_i$ is distributed with mean 0 and standard deviation $\sigma$.
 
-
-# Data 1
+## Data 1
 
 ```{r, echo=TRUE, warning=FALSE, message=FALSE}
-splines_model <- smooth.spline(x=data1$x, y=data1$y, df = 10) # cv = true for sanity check
+set.seed(18)
+RMSE.opt <- rep(0, times=5) # initialize vector of lowest RMSE's from 5 folds
+df.opt <- rep(0, times=5) # initialize vector of df's corresponding to lowest RMSE's from 5 folds
+```
+
+### Fold 1
+
+I split `data1` into k = 5 folds. In the first fold, I randomly create a disjoint training set and test (validation) set. The test set is a random sample of 600 data points (1/5 of the data points) from data1 and the rest of data1 becomes the training set. For the training set in this first fold, I fit a spline model. Then I use predict() to take the model and create $\hat{y}$ values for the test set. Next, I compute a score (root mean squared error) by comparing the $\hat{y}$ values for the test set with the actual y values.
+
+```{r, echo=TRUE, warning=FALSE, message=FALSE}
+# Create disjoint training and test data sets of size 2400 and 600, respectively
+d1_samp_tr <- data1 %>% # data1_sample_train
+  sample_n(2400)
+d1_samp_te <- data1 %>% # data1_sample_test
+  anti_join(d1_samp_tr, by="ID") # this is 1/5 of sample size of data1
+
+dfs <- rep(2:51) # df = 2 through 51
+RMSEs <- rep(0, times=50) # RMSE's for the given df's
+
+for (i in 1:length(dfs)) {
+  splines_model <- smooth.spline(x=d1_samp_tr$x, y=d1_samp_tr$y, df = dfs[i]) # fit spline model
+  d1_samp_te$preds <- predict(splines_model,d1_samp_te$x)$y # y-hats created from predict()
+  n <- length(d1_samp_te$preds) # n = 600
+  MSE <- (1/n)*sum((d1_samp_te$y-d1_samp_te$preds)^2) # mean squared error
+  RMSE <- sqrt(MSE) # root mean squared error
+  RMSEs[i] <- RMSE # fill in the vector
+}
+
+# Visualization arguing for model
+dataframe <- data.frame(dfs,RMSEs)
+ggplot(dataframe, aes(x=dfs)) + geom_point(aes(y=RMSEs)) + theme_bw() + labs(x="df", y="RMSE")
+
+RMSE.opt[1] <- min(RMSEs) # choose minimum RMSE from model
+df.opt[1] <- which.min(RMSEs) + 1 # choose corresponding df
+# The position of the vector df.opt is actually 1 under the true df because the first position of the vector contains df = 2. That's why I have to add 1.
+```
+
+### Fold 2
+
+For fold 2, I start by choosing as a test set 1/5 of the data set that has not yet been part of the test set in fold 1. Practically speaking, this means choosing 1800 points from the training set of fold 1 to remain as the training set for fold 2, and then adding the 600 points from the test set of fold 1 to also be part of the training set in fold 2. Then I fit a spline model to the new training set. Use predict() to take the model and create y-hat values for the test set. Compute score by comparing the y-hat values of the test set with the actual y values.
+
+```{r, echo=TRUE, warning=FALSE, message=FALSE}
+# Repeat: sample 600 data points to be test set that are NOT in the previous test set
+d1_samp_tr2 <- d1_samp_tr %>% 
+  sample_n(1800)
+d1_samp_te2 <- d1_samp_tr %>% 
+  anti_join(d1_samp_tr2, by="ID")
+
+# removes pred column so that I can use rbind
+d1_samp_te <- d1_samp_te[-4]
+
+# take the old test set and add it to the training set so that it's 2400 data points in the training set
+d1_samp_tr2rb <- rbind(d1_samp_te,d1_samp_tr2) 
+
+dfs <- rep(2:51)
+RMSEs <- rep(0, times=50) # RMSE's
+
+for (i in 1:length(dfs)) {
+  splines_model <- smooth.spline(x=d1_samp_tr2rb$x, y=d1_samp_tr2rb$y, df = dfs[i])
+  d1_samp_te2$preds <- predict(splines_model,d1_samp_te2$x)$y
+  n <- length(d1_samp_te2$preds)
+  MSE <- (1/n)*sum((d1_samp_te2$y-d1_samp_te2$preds)^2)
+  RMSE <- sqrt(MSE)
+  RMSEs[i] <- RMSE
+}
+
+# Visualization arguing for model
+dataframe <- data.frame(dfs,RMSEs)
+ggplot(dataframe, aes(x=dfs)) + geom_point(aes(y=RMSEs)) + theme_bw() + labs(x="df", y="RMSE")
+
+RMSE.opt[2] <- min(RMSEs)
+df.opt[2] <- which.min(RMSEs) + 1
+```
+
+### Fold 3
+
+Fold 3 is similar to fold 2. I start by choosing as a test set 1/5 of the data set that has not yet been part of the test set in folds 1 and 2. Practically speaking, this means choosing 1200 points from the training set of fold 2 to remain as the training set for fold 3, and then adding the 1200 points from the test sets of folds 1 and 2 to also be part of the training set in fold 3.
+
+```{r, echo=TRUE, warning=FALSE, message=FALSE}
+# Repeat: sample 600 data points to be test set that are NOT in the previous test set
+d1_samp_tr3 <- d1_samp_tr2 %>% 
+  sample_n(1200)
+d1_samp_te3 <- d1_samp_tr2 %>% 
+  anti_join(d1_samp_tr3, by="ID")
+
+# removes pred column so that I can use rbind
+d1_samp_te2 <- d1_samp_te2[-4]
+
+# take the old test set and add it to the training set so that it's 2400 data points in the training set
+d1_samp_tr3rb <- rbind(d1_samp_te,d1_samp_tr3)
+d1_samp_tr3rb <- rbind(d1_samp_te2,d1_samp_tr3rb) 
+
+dfs <- rep(2:51)
+RMSEs <- rep(0, times=50) # RMSE's
+
+for (i in 1:length(dfs)) {
+  splines_model <- smooth.spline(x=d1_samp_tr3rb$x, y=d1_samp_tr3rb$y, df = dfs[i])
+  d1_samp_te3$preds <- predict(splines_model,d1_samp_te3$x)$y
+  n <- length(d1_samp_te3$preds)
+  MSE <- (1/n)*sum((d1_samp_te3$y-d1_samp_te3$preds)^2)
+  RMSE <- sqrt(MSE)
+  RMSEs[i] <- RMSE
+}
+
+# Visualization arguing for model
+dataframe <- data.frame(dfs,RMSEs)
+ggplot(dataframe, aes(x=dfs)) + geom_point(aes(y=RMSEs)) + theme_bw() + labs(x="df", y="RMSE")
+
+RMSE.opt[3] <- min(RMSEs)
+df.opt[3] <- which.min(RMSEs) + 1
+```
+
+### Fold 4
+
+See Fold 3 and follow through with similar logic!
+
+```{r, echo=TRUE, warning=FALSE, message=FALSE}
+# Repeat: sample 600 data points to be test set that are NOT in the previous test set
+d1_samp_tr4 <- d1_samp_tr3 %>% 
+  sample_n(600)
+d1_samp_te4 <- d1_samp_tr3 %>% 
+  anti_join(d1_samp_tr4, by="ID")
+
+# removes pred column so that I can use rbind
+d1_samp_te3 <- d1_samp_te3[-4]
+
+# take the old test set and add it to the training set so that it's 2400 data points in the training set
+d1_samp_tr4rb <- rbind(d1_samp_te,d1_samp_tr4)
+d1_samp_tr4rb <- rbind(d1_samp_te2,d1_samp_tr4rb)
+d1_samp_tr4rb <- rbind(d1_samp_te3,d1_samp_tr4rb)
+
+dfs <- rep(2:51)
+RMSEs <- rep(0, times=50) # RMSE's
+
+for (i in 1:length(dfs)) {
+  splines_model <- smooth.spline(x=d1_samp_tr4rb$x, y=d1_samp_tr4rb$y, df = dfs[i])
+  d1_samp_te4$preds <- predict(splines_model,d1_samp_te4$x)$y
+  n <- length(d1_samp_te4$preds)
+  MSE <- (1/n)*sum((d1_samp_te4$y-d1_samp_te4$preds)^2)
+  RMSE <- sqrt(MSE)
+  RMSEs[i] <- RMSE
+}
+
+# Visualization arguing for model
+dataframe <- data.frame(dfs,RMSEs)
+ggplot(dataframe, aes(x=dfs)) + geom_point(aes(y=RMSEs)) + theme_bw() + labs(x="df", y="RMSE")
+
+RMSE.opt[4] <- min(RMSEs)
+df.opt[4] <- which.min(RMSEs) - 1
+```
+
+### Fold 5
+
+For Fold 5, the test set is composed of the training set from Fold 4 (all of the other points are parts of test sets in other folds). The training set is the combination of all of the test sets from the other folds.
+
+```{r, echo=TRUE, warning=FALSE, message=FALSE}
+# Only works for Fold 5
+d1_samp_te5 = d1_samp_tr4
+
+# removes pred column so that I can use rbind
+d1_samp_te4 <- d1_samp_te4[-4]
+
+# take the old test set and add it to the training set so that it's 2400 data points in the training set
+d1_samp_tr5rb <- rbind(d1_samp_te,d1_samp_te2)
+d1_samp_tr5rb <- rbind(d1_samp_te3,d1_samp_tr5rb)
+d1_samp_tr5rb <- rbind(d1_samp_te4,d1_samp_tr5rb)
+
+dfs <- rep(2:51)
+RMSEs <- rep(0, times=50) # RMSE's
+
+for (i in 1:length(dfs)) {
+  splines_model <- smooth.spline(x=d1_samp_tr5rb$x, y=d1_samp_tr5rb$y, df = dfs[i])
+  d1_samp_te5$preds <- predict(splines_model,d1_samp_te5$x)$y
+  n <- length(d1_samp_te5$preds)
+  MSE <- (1/n)*sum((d1_samp_te5$y-d1_samp_te5$preds)^2)
+  RMSE <- sqrt(MSE)
+  RMSEs[i] <- RMSE
+}
+
+# Visualization arguing for model
+dataframe <- data.frame(dfs,RMSEs)
+ggplot(dataframe, aes(x=dfs)) + geom_point(aes(y=RMSEs)) + theme_bw() + labs(x="df", y="RMSE")
+
+RMSE.opt[5] <- min(RMSEs)
+df.opt[5] <- which.min(RMSEs) + 1
+```
+
+```{r, echo=TRUE, warning=FALSE, message=FALSE}
+score <- mean(RMSE.opt)
+mean(df.opt)
+```
+
+Let's choose df = 35. We choose $\widehat{\sigma}$ = `r score` because the RMSE is our best estimate of $\sigma$.
+
+```{r, echo=TRUE, warning=FALSE, message=FALSE}
+splines_model <- smooth.spline(x=data1$x, y=data1$y, df=35)
 splines_model_tidy <- splines_model %>% 
   broom::augment() 
 plot <- ggplot(splines_model_tidy, aes(x=x)) +
   geom_point(aes(y=y)) +
-  geom_line(aes(y=.fitted), col="blue")
-plot
+  geom_line(aes(y=.fitted), col="red",size=2) + labs(title="Best Out-of-Sample Predictive Spline")
+plot + theme_bw()
 ```
 
-1. Take data1 and split it into k folds. Let's say k = 5.
-2. In each fold, randomly create disjoint training set and test (validation) set. Test set is 1/5 of data1 and the rest is training set.
-3. For the training set in each fold, fit a spline model. Then use predict() to take the model and create y-hat values for the test set.
-4. Compute score by comparing the y-hat values for the test set with the actual y values. Let the score = RMSE.
-5. Repeat by choosing another 1/5 of data1 to be the test set and then the rest of it to be the training set. Fit a spline model to the new training set. Use predict() to take the model and create y-hat values for the test set. Compute score by comparing the y-hat values of the test set with the actual y values.
+## Data 2
+
+```{r}
+set.seed(18)
+RMSE.optd2 <- rep(0, times=5) # initialize vector of lowest RMSE's from 5 folds
+df.optd2 <- rep(0, times=5) # initialize vector of df's corresponding to lowest RMSE's from 5 folds
+```
+
+### Fold 1
+
+I split `data2` into k = 5 folds. In the first fold, I randomly create a disjoint training set and test (validation) set. The test set is a random sample of 600 data points (1/5 of the data points) from data2 and the rest of data2 becomes the training set. For the training set in this first fold, I fit a spline model. Then I use predict() to take the model and create $\hat{y}$ values for the test set. Next, I compute a score (root mean squared error) by comparing the $\hat{y}$ values for the test set with the actual y values.
 
 ```{r, echo=TRUE, warning=FALSE, message=FALSE}
-set.seed(18)
-
 # Create disjoint training and test data sets of size 2400 and 600, respectively
-data1_sample_train <- data1 %>% 
+d2_samp_tr <- data2 %>% # data2_sample_train
   sample_n(2400)
-data1_sample_test <- data1 %>% 
-  anti_join(data1_sample_train, by="ID")
+d2_samp_te <- data2 %>% # data2_sample_test
+  anti_join(d2_samp_tr, by="ID")
 
-# Fit a spline model to training data set
-splines_model1 <- smooth.spline(x=data1_sample_train$x, y=data1_sample_train$y, df = 10)
-splines_model1_tidy <- splines_model1 %>% 
-  broom::augment() 
-plot <- ggplot(splines_model1_tidy, aes(x=x)) +
-  geom_point(aes(y=y)) +
-  geom_line(aes(y=.fitted), col="blue")
-plot
+dfs <- rep(2:51)
+RMSEs <- rep(0, times=50) # RMSE's
 
-# Use predict() to create y-hat values for test set
-data1_sample_test$preds <- predict(splines_model1,data1_sample_test$x)$y
+for (i in 1:length(dfs)) {
+  splines_model <- smooth.spline(x=d2_samp_tr$x, y=d2_samp_tr$y, df = dfs[i])
+  d2_samp_te$preds <- predict(splines_model,d2_samp_te$x)$y
+  n <- length(d2_samp_te$preds)
+  MSE <- (1/n)*sum((d2_samp_te$y-d2_samp_te$preds)^2)
+  RMSE <- sqrt(MSE)
+  RMSEs[i] <- RMSE
+}
 
-# RMSE
-n <- length(data1_sample_test$preds)
-MSE <- (1/n)*sum((data1_sample_test$y-data1_sample_test$preds)^2)
-RMSE <- sqrt(MSE)
-RMSE
+# Visualization arguing for model
+dataframe <- data.frame(dfs,RMSEs)
+ggplot(dataframe, aes(x=dfs)) + geom_point(aes(y=RMSEs)) + theme_bw() + labs(x="df", y="RMSE")
+
+RMSE.opt[1] <- min(RMSEs)
+df.opt[1] <- which.min(RMSEs) + 1
 ```
 
-# Data 2
+### Fold 2
+
+For fold 2, I start by choosing as a test set 1/5 of the data set that has not yet been part of the test set in fold 1. Practically speaking, this means choosing 1800 points from the training set of fold 1 to remain as the training set for fold 2, and then adding the 600 points from the test set of fold 1 to also be part of the training set in fold 2. Then I fit a spline model to the new training set. Use predict() to take the model and create y-hat values for the test set. Compute score by comparing the y-hat values of the test set with the actual y values.
 
 ```{r, echo=TRUE, warning=FALSE, message=FALSE}
-set.seed(18)
+# Repeat: sample 600 data points to be test set that are NOT in the previous test set
+d2_samp_tr2 <- d2_samp_tr %>% 
+  sample_n(1800)
+d2_samp_te2 <- d2_samp_tr %>% 
+  anti_join(d2_samp_tr2, by="ID")
 
-# Create disjoint training and test data sets of size 2400 and 600, respectively
-data2_sample_train <- data2 %>% 
-  sample_n(2400)
-data2_sample_test <- data2 %>% 
-  anti_join(data1_sample_train, by="ID")
+# removes pred column so that I can use rbind
+d2_samp_te <- d2_samp_te[-4]
 
-# Fit a spline model to training data set
-splines_model2 <- smooth.spline(x=data2_sample_train$x, y=data2_sample_train$y, df = 10)
-splines_model2_tidy <- splines_model2 %>% 
-  broom::augment() 
-plot <- ggplot(splines_model2_tidy, aes(x=x)) +
-  geom_point(aes(y=y)) +
-  geom_line(aes(y=.fitted), col="blue")
-plot
+# take the old test set and add it to the training set so that it's 2400 data points in the training set
+d2_samp_tr2rb <- rbind(d2_samp_te,d2_samp_tr2) 
 
-# Use predict() to create y-hat values for test set
-data2_sample_test$preds <- predict(splines_model2,data2_sample_test$x)$y
+dfs <- rep(2:51)
+RMSEs <- rep(0, times=50) # RMSE's
 
-# RMSE
-n <- length(data2_sample_test$preds)
-MSE <- (1/n)*sum((data2_sample_test$y-data2_sample_test$preds)^2)
-RMSE <- sqrt(MSE)
-RMSE
+for (i in 1:length(dfs)) {
+  splines_model <- smooth.spline(x=d2_samp_tr2rb$x, y=d2_samp_tr2rb$y, df = dfs[i])
+  d2_samp_te2$preds <- predict(splines_model,d2_samp_te2$x)$y
+  n <- length(d2_samp_te2$preds)
+  MSE <- (1/n)*sum((d2_samp_te2$y-d2_samp_te2$preds)^2)
+  RMSE <- sqrt(MSE)
+  RMSEs[i] <- RMSE
+}
+
+# Visualization arguing for model
+dataframe <- data.frame(dfs,RMSEs)
+ggplot(dataframe, aes(x=dfs)) + geom_point(aes(y=RMSEs)) + theme_bw() + labs(x="df", y="RMSE")
+
+RMSE.opt[2] <- min(RMSEs)
+df.opt[2] <- which.min(RMSEs) + 1
 ```
 
+### Fold 3
+
+Fold 3 is similar to fold 2. I start by choosing as a test set 1/5 of the data set that has not yet been part of the test set in folds 1 and 2. Practically speaking, this means choosing 1200 points from the training set of fold 2 to remain as the training set for fold 3, and then adding the 1200 points from the test sets of folds 1 and 2 to also be part of the training set in fold 3.
+
+```{r, echo=TRUE, warning=FALSE, message=FALSE}
+# Repeat: sample 600 data points to be test set that are NOT in the previous test set
+d2_samp_tr3 <- d2_samp_tr2 %>% 
+  sample_n(1200)
+d2_samp_te3 <- d2_samp_tr2 %>% 
+  anti_join(d2_samp_tr3, by="ID")
+
+# removes pred column so that I can use rbind
+d2_samp_te2 <- d2_samp_te2[-4]
+
+# take the old test set and add it to the training set so that it's 2400 data points in the training set
+d2_samp_tr3rb <- rbind(d2_samp_te,d2_samp_tr3)
+d2_samp_tr3rb <- rbind(d2_samp_te2,d2_samp_tr3rb) 
+
+dfs <- rep(2:51)
+RMSEs <- rep(0, times=50) # RMSE's
+
+for (i in 1:length(dfs)) {
+  splines_model <- smooth.spline(x=d2_samp_tr3rb$x, y=d2_samp_tr3rb$y, df = dfs[i])
+  d2_samp_te3$preds <- predict(splines_model,d2_samp_te3$x)$y
+  n <- length(d2_samp_te3$preds)
+  MSE <- (1/n)*sum((d2_samp_te3$y-d2_samp_te3$preds)^2)
+  RMSE <- sqrt(MSE)
+  RMSEs[i] <- RMSE
+}
+
+# Visualization arguing for model
+dataframe <- data.frame(dfs,RMSEs)
+ggplot(dataframe, aes(x=dfs)) + geom_point(aes(y=RMSEs)) + theme_bw() + labs(x="df", y="RMSE")
+
+RMSE.opt[3] <- min(RMSEs)
+df.opt[3] <- which.min(RMSEs) + 1
+```
+
+### Fold 4
+
+See Fold 3 and follow through with similar logic!
+
+```{r, echo=TRUE, warning=FALSE, message=FALSE}
+# Repeat: sample 600 data points to be test set that are NOT in the previous test set
+d2_samp_tr4 <- d2_samp_tr3 %>% 
+  sample_n(600)
+d2_samp_te4 <- d2_samp_tr3 %>% 
+  anti_join(d2_samp_tr4, by="ID")
+
+# removes pred column so that I can use rbind
+d2_samp_te3 <- d2_samp_te3[-4]
+
+# take the old test set and add it to the training set so that it's 2400 data points in the training set
+d2_samp_tr4rb <- rbind(d2_samp_te,d2_samp_tr4)
+d2_samp_tr4rb <- rbind(d2_samp_te2,d2_samp_tr4rb)
+d2_samp_tr4rb <- rbind(d2_samp_te3,d2_samp_tr4rb)
+
+dfs <- rep(2:51)
+RMSEs <- rep(0, times=50) # RMSE's
+
+for (i in 1:length(dfs)) {
+  splines_model <- smooth.spline(x=d2_samp_tr4rb$x, y=d2_samp_tr4rb$y, df = dfs[i])
+  d2_samp_te4$preds <- predict(splines_model,d2_samp_te4$x)$y
+  n <- length(d2_samp_te4$preds)
+  MSE <- (1/n)*sum((d2_samp_te4$y-d2_samp_te4$preds)^2)
+  RMSE <- sqrt(MSE)
+  RMSEs[i] <- RMSE
+}
+
+# Visualization arguing for model
+dataframe <- data.frame(dfs,RMSEs)
+ggplot(dataframe, aes(x=dfs)) + geom_point(aes(y=RMSEs)) + theme_bw() + labs(x="df", y="RMSE")
+
+RMSE.opt[4] <- min(RMSEs)
+df.opt[4] <- which.min(RMSEs) + 1
+```
+
+### Fold 5
+
+For Fold 5, the test set is composed of the training set from Fold 4 (all of the other points are parts of test sets in other folds). The training set is the combination of all of the test sets from the other folds.
+
+```{r, echo=TRUE, warning=FALSE, message=FALSE}
+# Only works for Fold 5
+d2_samp_te5 = d2_samp_tr4
+
+# removes pred column so that I can use rbind
+d2_samp_te4 <- d2_samp_te4[-4]
+
+# take the old test set and add it to the training set so that it's 2400 data points in the training set
+d2_samp_tr5rb <- rbind(d2_samp_te,d2_samp_te2)
+d2_samp_tr5rb <- rbind(d2_samp_te3,d2_samp_tr5rb)
+d2_samp_tr5rb <- rbind(d2_samp_te4,d2_samp_tr5rb)
+
+dfs <- rep(2:51)
+RMSEs <- rep(0, times=50) # RMSE's
+
+for (i in 1:length(dfs)) {
+  splines_model <- smooth.spline(x=d2_samp_tr5rb$x, y=d2_samp_tr5rb$y, df = dfs[i])
+  d2_samp_te5$preds <- predict(splines_model,d2_samp_te5$x)$y
+  n <- length(d2_samp_te5$preds)
+  MSE <- (1/n)*sum((d2_samp_te5$y-d2_samp_te5$preds)^2)
+  RMSE <- sqrt(MSE)
+  RMSEs[i] <- RMSE
+}
+
+# Visualization arguing for model
+dataframe <- data.frame(dfs,RMSEs)
+ggplot(dataframe, aes(x=dfs)) + geom_point(aes(y=RMSEs)) + theme_bw() + labs(x="df", y="RMSE")
+
+RMSE.opt[5] <- min(RMSEs)
+df.opt[5] <- which.min(RMSEs) + 1
+```
+
+```{r, echo=TRUE, warning=FALSE, message=FALSE}
+score <- mean(RMSE.opt)
+mean(df.opt)
+```
+
+Let's choose df = 30. We choose $\widehat{\sigma}$ = `r score` because the RMSE is our best estimate of $\sigma$.
+
+```{r, echo=TRUE, warning=FALSE, message=FALSE}
+splines_model <- smooth.spline(x=data1$x, y=data1$y, df=30)
+splines_model_tidy <- splines_model %>% 
+  broom::augment() 
+plot <- ggplot(splines_model_tidy, aes(x=x)) +
+  geom_point(aes(y=y)) +
+  geom_line(aes(y=.fitted), col="red",size=2) + labs(title="Best Out-of-Sample Predictive Spline")
+plot + theme_bw()
+```
